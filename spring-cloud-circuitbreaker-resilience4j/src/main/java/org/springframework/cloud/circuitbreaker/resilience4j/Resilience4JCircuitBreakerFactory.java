@@ -27,6 +27,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import io.github.resilience4j.timelimiter.TimeLimiterRegistry;
 
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.springframework.cloud.client.circuitbreaker.Customizer;
@@ -34,20 +35,35 @@ import org.springframework.util.Assert;
 
 /**
  * @author Ryan Baxter
+ * @author Andrii Bohutskyi
  */
 public class Resilience4JCircuitBreakerFactory extends
 		CircuitBreakerFactory<Resilience4JConfigBuilder.Resilience4JCircuitBreakerConfiguration, Resilience4JConfigBuilder> {
+
+	private Resilience4jBulkheadProvider bulkheadProvider;
 
 	private Function<String, Resilience4JConfigBuilder.Resilience4JCircuitBreakerConfiguration> defaultConfiguration = id -> new Resilience4JConfigBuilder(
 			id).circuitBreakerConfig(CircuitBreakerConfig.ofDefaults())
 					.timeLimiterConfig(TimeLimiterConfig.ofDefaults()).build();
 
-	private CircuitBreakerRegistry circuitBreakerRegistry = CircuitBreakerRegistry
-			.ofDefaults();
+	private CircuitBreakerRegistry circuitBreakerRegistry = CircuitBreakerRegistry.ofDefaults();
+
+	private TimeLimiterRegistry timeLimiterRegistry = TimeLimiterRegistry.ofDefaults();
 
 	private ExecutorService executorService = Executors.newCachedThreadPool();
 
 	private Map<String, Customizer<CircuitBreaker>> circuitBreakerCustomizers = new HashMap<>();
+
+	@Deprecated
+	public Resilience4JCircuitBreakerFactory() {
+	}
+
+	public Resilience4JCircuitBreakerFactory(CircuitBreakerRegistry circuitBreakerRegistry,
+			TimeLimiterRegistry timeLimiterRegistry, Resilience4jBulkheadProvider bulkheadProvider) {
+		this.circuitBreakerRegistry = circuitBreakerRegistry;
+		this.timeLimiterRegistry = timeLimiterRegistry;
+		this.bulkheadProvider = bulkheadProvider;
+	}
 
 	@Override
 	protected Resilience4JConfigBuilder configBuilder(String id) {
@@ -64,8 +80,16 @@ public class Resilience4JCircuitBreakerFactory extends
 		this.circuitBreakerRegistry = registry;
 	}
 
-	protected CircuitBreakerRegistry getCircuitBreakerRegistry() {
-		return circuitBreakerRegistry;
+	public CircuitBreakerRegistry getCircuitBreakerRegistry() {
+		return this.circuitBreakerRegistry;
+	}
+
+	public TimeLimiterRegistry getTimeLimiterRegistry() {
+		return this.timeLimiterRegistry;
+	}
+
+	public Resilience4jBulkheadProvider getBulkheadProvider() {
+		return this.bulkheadProvider;
 	}
 
 	public void configureExecutorService(ExecutorService executorService) {
@@ -77,13 +101,12 @@ public class Resilience4JCircuitBreakerFactory extends
 		Assert.hasText(id, "A CircuitBreaker must have an id.");
 		Resilience4JConfigBuilder.Resilience4JCircuitBreakerConfiguration config = getConfigurations()
 				.computeIfAbsent(id, defaultConfiguration);
-		return new Resilience4JCircuitBreaker(id, config.getCircuitBreakerConfig(),
-				config.getTimeLimiterConfig(), circuitBreakerRegistry, executorService,
-				Optional.ofNullable(circuitBreakerCustomizers.get(id)));
+		return new Resilience4JCircuitBreaker(id, config.getCircuitBreakerConfig(), config.getTimeLimiterConfig(),
+				circuitBreakerRegistry, timeLimiterRegistry, executorService,
+				Optional.ofNullable(circuitBreakerCustomizers.get(id)), bulkheadProvider);
 	}
 
-	public void addCircuitBreakerCustomizer(Customizer<CircuitBreaker> customizer,
-			String... ids) {
+	public void addCircuitBreakerCustomizer(Customizer<CircuitBreaker> customizer, String... ids) {
 		for (String id : ids) {
 			circuitBreakerCustomizers.put(id, customizer);
 		}
